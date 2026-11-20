@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
-from auth import AuthHeader, require_user
+from auth import AuthHeader, authorize_write, require_user, write_gated
 from db import connect, write_audit
 from locks import release, require_lock
 from models import EventIn
@@ -18,10 +18,17 @@ def _now() -> str:
 
 
 @router.post("/api/events")
+@write_gated
 def ingest_event(body: EventIn, authorization: AuthHeader = None):
-    user = require_user(authorization)
     lock_key = f"ingest:{body.window_name}"
     with connect() as conn:
+        user = authorize_write(
+            conn,
+            authorization,
+            attempt="ingest",
+            target=body.biz_key,
+            lock_key=lock_key,
+        )
         require_lock(conn, lock_key, user)
         try:
             w = conn.execute(

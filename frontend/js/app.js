@@ -29,6 +29,9 @@ createApp({
     const locks = ref([]);
     const holds = ref([]);
     const dash = ref({});
+    const myRole = ref("");
+    const writePolicy = ref({});
+    const denials = ref([]);
     const form = ref({
       window_name: "W-1102",
       biz_key: "ORD-9",
@@ -112,6 +115,15 @@ createApp({
       const d = await api.get("/api/dashboard");
       if (d === null) return;
       dash.value = d.body || {};
+      const me = await api.get("/api/me");
+      if (me === null) return;
+      myRole.value = (me.body && me.body.role) || "";
+      const wp = await api.get("/api/write-policy");
+      if (wp === null) return;
+      writePolicy.value = wp.body || {};
+      const dn = await api.get("/api/audit/denials");
+      if (dn === null) return;
+      denials.value = Array.isArray(dn.body.items) ? dn.body.items : [];
       if (windows.value.length) {
         const q = await api.get("/api/reconcile/" + windows.value[0].id);
         if (q === null) return;
@@ -209,6 +221,10 @@ createApp({
       locks,
       holds,
       dash,
+      myRole,
+      writePolicy,
+      denials,
+      isReadOnly: computed(() => myRole.value === "只读"),
       form,
       holdForm,
       actionErr,

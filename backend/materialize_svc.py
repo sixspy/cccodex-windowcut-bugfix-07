@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
-from auth import AuthHeader, require_user, require_writer
+from auth import AuthHeader, authorize_write, require_user, write_gated
 from db import connect, write_audit
 from locks import release, require_lock
 from models import MaterializeIn
@@ -14,14 +14,21 @@ router = APIRouter(tags=["materialize"])
 
 
 @router.post("/api/windows/{wid}/materialize")
+@write_gated
 def materialize(
     wid: int,
     authorization: AuthHeader = None,
     body: MaterializeIn = MaterializeIn(),
 ):
-    user = require_writer(authorization)
     lock_key = f"materialize:{wid}"
     with connect() as conn:
+        user = authorize_write(
+            conn,
+            authorization,
+            attempt="materialize",
+            target=str(wid),
+            lock_key=lock_key,
+        )
         require_lock(conn, lock_key, user)
         try:
             w = conn.execute("SELECT * FROM windows WHERE id=?", (wid,)).fetchone()
@@ -83,10 +90,13 @@ def list_mats(authorization: AuthHeader = None):
 
 
 @router.post("/api/materializations/partition-stub")
+@write_gated
 def partition_stub(authorization: AuthHeader = None):
     """空桩模块：部分物化失败回滚策略待题面落地。"""
-    user = require_user(authorization)
     with connect() as conn:
+        user = authorize_write(
+            conn, authorization, attempt="partition_mat_stub"
+        )
         write_audit(
             conn,
             user,

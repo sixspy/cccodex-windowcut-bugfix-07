@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
-from auth import AuthHeader, require_user
+from auth import AuthHeader, authorize_write, require_user, write_gated
 from db import connect, write_audit
 from locks import release, require_lock
 from models import ReopenIn
@@ -27,10 +27,17 @@ def list_reopen(authorization: AuthHeader = None):
 
 
 @router.post("/api/windows/{wid}/reopen-stub")
+@write_gated
 def reopen_stub(wid: int, body: ReopenIn, authorization: AuthHeader = None):
-    user = require_user(authorization)
     lock_key = f"reopen:{wid}"
     with connect() as conn:
+        user = authorize_write(
+            conn,
+            authorization,
+            attempt="reopen",
+            target=str(wid),
+            lock_key=lock_key,
+        )
         require_lock(conn, lock_key, user)
         try:
             w = conn.execute("SELECT * FROM windows WHERE id=?", (wid,)).fetchone()

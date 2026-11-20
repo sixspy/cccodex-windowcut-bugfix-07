@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from auth import AuthHeader, require_user
+from auth import AuthHeader, authorize_write, require_user, write_gated
 from db import connect, write_audit
 from locks import release, require_lock
 
@@ -47,11 +47,18 @@ def late_summary(authorization: AuthHeader = None):
 
 
 @router.post("/api/late-bucket/promote-stub")
+@write_gated
 def promote_stub(body: LatePromoteIn, authorization: AuthHeader = None):
     """空桩：补入目标窗。题面实现须择一写路径，母仓仅登记意图。"""
-    user = require_user(authorization)
     lock_key = f"late-promote:{body.late_id}"
     with connect() as conn:
+        user = authorize_write(
+            conn,
+            authorization,
+            attempt="late_promote",
+            target=str(body.late_id),
+            lock_key=lock_key,
+        )
         require_lock(conn, lock_key, user)
         try:
             late = conn.execute(
@@ -86,10 +93,13 @@ def promote_stub(body: LatePromoteIn, authorization: AuthHeader = None):
 
 
 @router.post("/api/late-bucket/{late_id}/discard-stub")
+@write_gated
 def discard_stub(late_id: int, authorization: AuthHeader = None):
     """空桩：作废迟到项（不删物理行，只审计）。"""
-    user = require_user(authorization)
     with connect() as conn:
+        user = authorize_write(
+            conn, authorization, attempt="late_discard", target=str(late_id)
+        )
         late = conn.execute(
             "SELECT * FROM late_bucket WHERE id=?", (late_id,)
         ).fetchone()

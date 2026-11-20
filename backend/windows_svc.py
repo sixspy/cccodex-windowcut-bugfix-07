@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
-from auth import AuthHeader, require_user, require_writer
+from auth import AuthHeader, authorize_write, require_user, write_gated
 from db import connect, write_audit
 from locks import release, require_lock
 from models import WindowCreateIn
@@ -22,9 +22,10 @@ def list_windows(authorization: AuthHeader = None):
 
 
 @router.post("/api/windows")
+@write_gated
 def create_window(body: WindowCreateIn, authorization: AuthHeader = None):
-    user = require_user(authorization)
     with connect() as conn:
+        user = authorize_write(conn, authorization, attempt="window_create", target=body.name)
         try:
             conn.execute(
                 "INSERT INTO windows(name,open_at,close_at,status,generation) VALUES (?,?,?,?,1)",
@@ -40,10 +41,17 @@ def create_window(body: WindowCreateIn, authorization: AuthHeader = None):
 
 
 @router.post("/api/windows/{wid}/close")
+@write_gated
 def close_window(wid: int, authorization: AuthHeader = None):
-    user = require_writer(authorization)
     lock_key = f"window:{wid}"
     with connect() as conn:
+        user = authorize_write(
+            conn,
+            authorization,
+            attempt="window_close",
+            target=str(wid),
+            lock_key=lock_key,
+        )
         require_lock(conn, lock_key, user)
         try:
             w = conn.execute("SELECT * FROM windows WHERE id=?", (wid,)).fetchone()

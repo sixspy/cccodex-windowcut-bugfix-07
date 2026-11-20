@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from auth import AuthHeader, require_user
+from auth import AuthHeader, authorize_write, require_user, write_gated
 from db import connect, write_audit
 
 router = APIRouter(tags=["locks"])
@@ -71,9 +71,12 @@ def list_contention(authorization: AuthHeader = None):
 
 
 @router.post("/api/locks/acquire")
+@write_gated
 def acquire_lock(body: LockIn, authorization: AuthHeader = None):
-    user = require_user(authorization)
     with connect() as conn:
+        user = authorize_write(
+            conn, authorization, attempt="lock_acquire", target=body.lock_key
+        )
         ok = try_acquire(conn, body.lock_key, user)
         write_audit(
             conn,
@@ -89,9 +92,12 @@ def acquire_lock(body: LockIn, authorization: AuthHeader = None):
 
 
 @router.post("/api/locks/release")
+@write_gated
 def release_lock(body: LockIn, authorization: AuthHeader = None):
-    user = require_user(authorization)
     with connect() as conn:
+        user = authorize_write(
+            conn, authorization, attempt="lock_release", target=body.lock_key
+        )
         release(conn, body.lock_key, user)
         write_audit(conn, user, "lock_release", body.lock_key, {})
         conn.commit()

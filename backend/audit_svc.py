@@ -31,6 +31,20 @@ def audit_actions(authorization: AuthHeader = None):
         return {"items": [dict(r) for r in rows]}
 
 
+@router.get("/api/audit/denials")
+def audit_denials(authorization: AuthHeader = None, limit: int = 100):
+    """只读零写册可核证面：拒权审计单列，不改业务数据。"""
+    require_user(authorization)
+    limit = max(1, min(limit, 500))
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT * FROM audit_trail
+               WHERE action='write_denied' ORDER BY id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return {"items": [dict(r) for r in rows], "count": len(rows)}
+
+
 @router.get("/api/dashboard")
 def dashboard(authorization: AuthHeader = None):
     require_user(authorization)
